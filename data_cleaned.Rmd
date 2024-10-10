@@ -1,0 +1,242 @@
+---
+title: "data_cleaned"
+author: "Andrew Fan & Arnnav Aggarwal"
+output: pdf_document
+geometry: margin=0.5in
+urlcolor: blue
+date: "2024-10-09"
+---
+
+## STA302 Project Group #62
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#install.packages(c("dplyr", "tidyr"))
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(gridExtra)
+```
+
+## Data Cleaning
+......
+
+```{r}
+### Cleaning the data
+
+data <- read.csv("bicycle-thefts.csv")
+new <- subset(as.data.frame(data), 
+                select = c(OCC_YEAR, OCC_MONTH, OCC_DOW, OCC_HOUR, DIVISION,  
+                           PREMISES_TYPE, BIKE_MAKE, BIKE_TYPE, BIKE_SPEED, 
+                           BIKE_COLOUR, BIKE_COST, STATUS))
+
+new <- new %>%
+  rename(Year = OCC_YEAR, Month = OCC_MONTH, Day_of_Week = OCC_DOW, 
+         Hour = OCC_HOUR, Division = DIVISION, Location = PREMISES_TYPE, 
+         Brand = BIKE_MAKE, Type = BIKE_TYPE, Speed = BIKE_SPEED, 
+         Colour = BIKE_COLOUR, Cost = BIKE_COST, Status = STATUS)
+
+new$Month <- match(new$Month, month.name) 
+
+dow_orders <- c("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+new$Day_of_Week <- match(new$Day_of_Week, dow_orders) 
+
+new$Division <- gsub("^D", "", new$Division)
+new$Division <- as.integer(new$Division)
+
+new <- new %>% 
+  mutate(Location = case_when(                ## Home: Apartment, House = 1
+    Location == "Apartment" ~ 1,              ## Public area: Outside = 2
+    Location == "Commercial" ~ 3,             ## Busy areas: Commercial, Transit = 3
+    Location == "Educational" ~ 4,            ## Schools: Educational = 4
+    Location == "House" ~ 1,                  ## Others = 5
+    Location == "Transit" ~ 3,
+    Location == "Other" ~ 5,
+    Location == "Outside" ~ 2))
+
+new <- new %>%
+  mutate(Brand = case_when(                                              ## popular = 1, not_popular = 2
+    grepl("(?i)^(Tre.*|Spec.*|Gi.*|Cann.*|Scott|Santa.*|Cer.*|Bianchi|Pinarello
+          |Ko.*|BI|Btwin|CCM|Deca.*|Genesis|urban|SU|Cr.*|EVO|Genn.*|GT)$", Brand) ~ 1, 
+    TRUE ~ 2))
+
+new <- new %>%      
+  mutate(Colour = case_when(
+    grepl("(?i)^(black|BLK.*|BLA.*|DARK.*|othblk|pleblk)$", Colour) ~ 1,                  ## Black = 1
+    grepl("(?i)^(blue|BLU.*|DBL.*|CELE.*|LBL.*|pleblu|TRQ.*)$", Colour) ~ 2,              ## Blue = 2
+    grepl("(?i)^(brown|BRN.*|CPR.*|BRZ.*|BGE.*|TAN.*)$", Colour) ~ 3,                     ## Brown = 3
+    grepl("(?i)^(green|teal|GRN.*|DGR.*|LGR.*|TEQ.*|plegrn)$", Colour) ~ 4,               ## Green = 4
+    grepl("(?i)^(red|BUR.*|CRM.*|MRN.*|plemrn|plepnk|plered|PNK.*|RED.*)$", Colour) ~ 5,  ## Red = 5
+    grepl("(?i)^(yellow|gold|FRY.*|GLD.*|ONG.*|pleong|pleyel|YEL.*)$", Colour) ~ 6,       ## Yellow = 6 
+    grepl("(?i)^(white|plesil|plewhi|SIL.*|WHI.*|grey|GRY.*|plegry)$", Colour) ~ 7,       ## White = 7
+    TRUE ~ 8))
+
+new <- new %>% 
+  mutate(Type = case_when(            ## Others = 1
+    Type == "BM" ~ 1,                 ## Electric = 2
+    Type == "EL" ~ 2,                 ## Folding = 3
+    Type == "FO" ~ 3,                 ## Mountain = 4
+    Type == "MT" ~ 4,                 ## Road = 5
+    Type == "OT" ~ 1,
+    Type == "RC" ~ 5,
+    Type == "RE" ~ 1,
+    Type == "RG" ~ 5,
+    Type == "SC" ~ 5,
+    Type == "TA" ~ 1,
+    Type == "TO" ~ 1,
+    Type == "TR" ~ 1,
+    Type == "UN" ~ 1,))
+
+new <- new %>% 
+  mutate(Status = case_when(                
+    Status == "STOLEN" ~ 1,                 ## Stolen = 1
+    Status == "RECOVERED" ~ 2,              ## Recovered = 2
+    Status == "UNKNOWN" ~ 3))               ## Unknown = 3
+
+Total_theft <- new %>%
+  group_by(Year, Month, Day_of_Week) %>% 
+  summarise(Total_theft = n())
+
+new <- left_join(new, Total_theft, by = c("Year", "Month", "Day_of_Week"))
+
+new <- new[complete.cases(new),]
+new <- na.omit(new)
+
+new1 <- subset(new, Year >= 2022)
+```
+
+## Summarize the data
+......
+
+```{r}
+summary(new1)
+
+write.csv(new1, "bike_theft_cleaned.csv", row.names = FALSE)
+```
+
+
+```{r}
+## Perform a preliminary analysis:  Total theft ~ Day of Week + Division + Location + Brand + Colour
+
+preliminary <- lm(Total_theft ~ Day_of_Week + Division + Location + Brand + Colour, data = new1)
+
+summary(preliminary)
+
+y_value <- resid(preliminary)
+x_value <- fitted(preliminary)
+
+```
+The intercept of 46.9 is the average total number of thefts reported that bike of other types but popular brand in black are stolen for every Monday that happened at people's home in the Division 11.
+
+
+```{r}
+## Residual Plot  Total theft ~ Day of Week + Division + Location + Brand + Colour
+plot(x = x_value, y = y_value, main="Residual vs Fitted", xlab="Fitted",
+     ylab="Residuals")
+```
+The residual plot shows random scatters, no specific pattern observed. Therefore, no assumption violated based on this graph.
+
+
+```{r}
+## QQ Plot  Total theft ~ Day of Week + Division + Location + Brand + Colour
+
+qqnorm(y_value)
+qqline(y_value, col = "red")
+
+```
+Based on the Q-Q plot, the normality assumption is violated because the data points don't align with the red line above.
+
+
+```{r}
+par(mfrow=c(2,3))   ## Total theft ~ Day of Week + Division + Location + Brand + Colour
+
+plot(x = new1$Day_of_Week, y = y_value, main="Day_of_Week vs Fitted", xlab="Day_of_Week", ylab="Residuals")
+
+plot(x = new1$Division, y = y_value, main="Division vs Fitted", xlab="Division", ylab="Residuals")
+
+plot(x = new1$Location, y = y_value, main="Location vs Fitted", xlab="Location",ylab="Residuals")
+
+plot(x = new1$Brand, y = y_value, main="Brand vs Fitted", xlab="Brand",ylab="Residuals")
+
+
+plot(x = as.numeric(new1$Colour), y = y_value, main="Colour vs Fitted", xlab="Colour",ylab="Residuals")
+```
+No special patterns observed in these residual vs predictors, so no assumption violated here.
+
+
+```{r}
+## Boxplot   ## Total theft ~ Day of Week + Division + Location + Brand + Colour
+
+par(mfrow=c(2,3))
+
+boxplot(y_value ~ new1$Day_of_Week , main="Residual vs Day_of_Week", xlab="Day_of_Week", ylab="Residuals")
+
+boxplot(y_value ~ new1$Division , main="Residual vs Division", xlab="Division", ylab="Residuals")
+
+boxplot(y_value ~ new1$Location , main="Residual vs Location", xlab="Location", ylab="Residuals")
+
+boxplot(y_value ~ new1$Brand , main="Residual vs Brand", xlab="Brand", ylab="Residuals")
+
+boxplot(y_value ~ new1$Colour , main="Residual vs Colour", xlab="Colour", ylab="Residuals")
+
+```
+The mean value of Day_of_Week varying, which indicating a potential violation of linearity as a linear model may not fit well.
+The residual of Hour spread differently in some hours, which violates the constant error variance assumption.
+Same for Division, a violation of the constant error variance.
+Similar for Location, a violation of the constant error variance.
+
+
+```{r}
+## Condition_1: Check Scatterplot  ## Total theft ~ Day of Week + Division + Location + Brand + Colour
+y_value2 <- new1$Total_theft
+x_value2 <- fitted(preliminary)
+
+plot(x = x_value2, y = y_value2, main="Response vs Fitted", xlab="Fitted", ylab="Total_theft")
+abline(a = 0, b = 1, lty=2, col="red")
+```
+The scatterplot shows the additional condition 1 hold by showing random scatter around the diagonal, linearity holds.
+
+```{r, fig.height=6, fig.width=6}
+## Condition_2: Plot column[,3:7]    ## Total theft ~ Day of Week + Division + Location + Brand + Colour
+
+columns <- c(3, 5, 6, 7, 10)
+pairs(new1[,columns])
+```
+The plot clearly showing the additional condition 2 holds by no curves presents in any pair plots.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
